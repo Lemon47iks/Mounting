@@ -1,0 +1,4 @@
+moviepy==1.0.3
+openai-whisper
+numpy
+Pillow
