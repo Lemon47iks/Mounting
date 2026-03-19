@@ -23,10 +23,8 @@ import numpy as np
 from PIL import Image
 
 from moviepy.editor import (
-    AudioFileClip,
-    ImageClip,
-    VideoFileClip,
-    concatenate_videoclips,
+    AudioFileClip, ImageClip, VideoClip,  # ← добавить VideoClip
+    VideoFileClip, concatenate_videoclips,
 )
 from moviepy.video.fx.all import crop as fx_crop
 
@@ -108,29 +106,36 @@ def _cover_crop(image_path: str) -> np.ndarray:
 
 def make_image_clip(image_path: str, duration: float,
                     zoom_ratio: float = ZOOM_RATIO) -> ImageClip:
-    """
-    Create a video clip from an image with smooth zoom-in (Ken Burns) effect.
+    
+    # Максимальный зум за всю длительность клипа
+    max_zoom = 1 + zoom_ratio * duration
 
-    How it works:
-      • Image is pre-scaled to exactly cover the output frame (no black).
-      • Each frame t: scale up by (1 + zoom_ratio * t), then center-crop back
-        to TARGET size → progressive zoom-in, never reveals black borders.
-    """
+    # Один раз масштабируем до максимального размера
     base_arr = _cover_crop(image_path)
-    clip = ImageClip(base_arr).set_duration(duration).set_fps(FPS)
+    bh, bw = base_arr.shape[:2]
+    big_w = int(bw * max_zoom)
+    big_h = int(bh * max_zoom)
+    big_img = np.array(
+        Image.fromarray(base_arr).resize((big_w, big_h), Image.LANCZOS)
+    )
 
-    def zoom_effect(get_frame, t: float) -> np.ndarray:
-        frame = get_frame(t)
-        pil = Image.fromarray(frame)
-        bw, bh = pil.size
-        nw = math.ceil(bw * (1 + zoom_ratio * t))
-        nh = math.ceil(bh * (1 + zoom_ratio * t))
-        pil = pil.resize((nw, nh), Image.LANCZOS)
-        x = (nw - bw) // 2
-        y = (nh - bh) // 2
-        return np.array(pil.crop([x, y, x + bw, y + bh]))
+    def make_frame(t: float) -> np.ndarray:
+        # Текущий зум: от max_zoom (t=0) до 1.0 (t=duration) — окно сужается
+        current_zoom = 1 + zoom_ratio * t
+        # Размер вырезаемого окна (чем больше зум, тем меньше окно)
+        win_w = int(bw * max_zoom / current_zoom)
+        win_h = int(bh * max_zoom / current_zoom)
+        # Центрируем окно в big_img
+        x = (big_w - win_w) // 2
+        y = (big_h - win_h) // 2
+        crop_arr = big_img[y:y + win_h, x:x + win_w]
+        # Один финальный resize до таргета (плавно, без скачков)
+        return np.array(
+            Image.fromarray(crop_arr).resize((TARGET_W, TARGET_H), Image.LANCZOS)
+        )
 
-    return clip.fl(zoom_effect)
+    return VideoClip(make_frame, duration=duration).set_fps(FPS)
+
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
