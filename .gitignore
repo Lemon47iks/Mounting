@@ -1,3 +1,7 @@
 .venv
 assets
 output
+videos
+images
+audio
+output.mp4
